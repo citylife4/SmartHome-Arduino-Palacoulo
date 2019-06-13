@@ -2,12 +2,6 @@
 #include <SoftwareSerial.h>
 #include <EEPROM.h>
 
-// the data we broadcast to each other device
-struct
-{
-  byte address;
-  byte switches [10];
-}  message;
 
 //Serial Connection Defines
 const unsigned long BAUD_RATE = 9600;
@@ -22,12 +16,15 @@ unsigned long randomTime;
 const int REED_PIN = 2; // Pin connected to reed switch
 const int LED_PIN = 13; // LED pin - active-high
 
+//
+const int message_size = 10;
+
 const float TIME_PER_BYTE = 1.0 / (RS485_BAUD_RATE / 10.0);  // seconds per sending one byt
 // software serial pins
 const byte RO_PIN = 8;
 const byte DI_PIN = 9;
 // transmit enable
-const byte XMIT_ENABLE_PIN = 10;
+const byte RS485_ENABLE_BYTE = 10;
 const byte ENABLE_PIN = 4;
 
 byte inByte = 0;         // incoming serial byte
@@ -36,6 +33,18 @@ byte nextAddress;
 // from EEPROM
 byte myAddress;        // who we are
 byte numberOfDevices;  // maximum devices on the bus
+
+
+// the data we broadcast to each other device
+struct
+{
+  byte address;
+  byte switches [message_size];
+}  message;
+
+
+//Create RS485 
+SoftwareSerial rs485        ( RO_PIN, DI_PIN);  // receive pin, transmit pin
 
 // callbacks for the non-blocking RS485 library
 size_t fWrite (const byte what) {
@@ -52,7 +61,6 @@ int fRead () {
 
 // RS485 library instance
 RS485          rs485Channel (fRead, fAvailable, fWrite, 20);
-SoftwareSerial rs485        ( RO_PIN, DI_PIN);  // receive pin, transmit pin
 
 
 // Here to process an incoming message
@@ -61,18 +69,21 @@ void processSerialData() {
   // we cannot receive a message from ourself
   // someone must have given two devices the same address
   if (message.address == myAddress)
-  {
     Serial.println ("Problems");
-  }
+    //TODO: We should do somethin here...
+
   // make our LED match the switch of the previous device in sequence
 
-/*
-  Serial.println (message.switches [0]);
-  Serial.println (message.switches [1]);
-  int myMessage = ((message.switches [1]<<4)+message.switches [0]);
-*/
-  int myMessage = message.switches [0];
-  Serial.println (myMessage);
+  int i;
+  int myMessage ;
+  for (i=0 ; i<message_size; i++){
+    myMessage = message.switches [i];
+    Serial.print (i);
+    Serial.print (": ");
+    Serial.print (myMessage);
+    Serial.print (" ");
+  }
+  Serial.println ();
 
 } // end of processMessage
 
@@ -90,20 +101,24 @@ void UpdateRS485Info() {
 // Here to send our own message
 void sendRS485Message ()
 {
+  //Create a message
   memset (&message, 0, sizeof message);
+  
+  //Save myAdrress first
   message.address = myAddress;
 
-  int i=1;
+  int i=0;
   //Check Serial connection for data
-  while (Serial.available() > 0) {
-    int serialIn = Serial.read();
-    message.switches[i] = serialIn;
-    i++;
+  while (Serial.available() && i<message_size) {
+    char c = Serial.read();  //gets one byte from serial buffer
+    message.switches[i++] = c;
+    Serial.print (c);
+    delay(2);
   }
 
-  digitalWrite (XMIT_ENABLE_PIN, HIGH);  // enable sending
+  digitalWrite (RS485_ENABLE_BYTE, HIGH);  // enable sending
   rs485Channel.sendMsg ((byte *) &message, sizeof message);
-  digitalWrite (XMIT_ENABLE_PIN, LOW);  // disable sending
+  digitalWrite (RS485_ENABLE_BYTE, LOW);  // disable sending
 
 }  // end of sendMessage
 
@@ -131,7 +146,7 @@ void setup() {
   rs485Channel.begin ();
 
   // set up various pins
-  pinMode (XMIT_ENABLE_PIN, OUTPUT);
+  pinMode (RS485_ENABLE_BYTE, OUTPUT);
 
   // demo action pins
   pinMode (ENABLE_PIN, OUTPUT);
@@ -144,14 +159,17 @@ void setup() {
 
 // the loop function runs over and over again forever
 void loop() {
-  //Check Serial connection for data
-  while (Serial.available() > 0) {
+  
+  //Maybe we want this only one address only
+  if (Serial.available() > 0 ) {
     sendRS485Message();
   } //end serial.available
-  //Check RS connection for data
+
+  //Check the Bus for data and update GPIOs
   if (rs485Channel.update ()) {
     UpdateRS485Info();
   }  // end of message completely received
+  
   //Check outputs from GPIOs
 
   //Apply commands
