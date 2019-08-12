@@ -148,6 +148,7 @@ void loop() {
     memcpy (&message, rs485Channel.getData (), len);
     lastMessageTime = micros ();
     processSerialData ();
+    
   }  // end of message completely received
   //Check outputs from GPIOs
 
