@@ -4,7 +4,7 @@
 
 //RS485 Defines
 
-// the data we broadcast to each other device
+// the data we broadcast to each other device changes
 struct
 {
   byte address;
