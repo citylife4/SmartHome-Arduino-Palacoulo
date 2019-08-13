@@ -5,11 +5,16 @@
 //RS485 Defines
 
 // the data we broadcast to each other device changes
-struct
-{
-  byte address;
-  byte switches [10];
-}  message;
+class Message {
+
+  public:
+  int address;
+  byte command;
+  byte info;
+  byte available;
+} ;
+
+Message message;
 
 const unsigned long RS485_BAUD_RATE = 9600;
 const float TIME_PER_BYTE = 1.0 / (RS485_BAUD_RATE / 10.0);  // seconds per sending one byt
@@ -93,37 +98,35 @@ void setup() {
 }
 
 // Here to process an incoming message
-void processSerialData() {
+void processRS48Message(Message *message) {
+
+  // make our LED match the switch of the previous device in sequence
+  memcpy (message, rs485Channel.getData (), rs485Channel.getLength ());
   // handle the incoming message, depending on who it is from and the data in it
   // we cannot receive a message from ourself
   // someone must have given two devices the same address
-  if (message.address == myAddress)
+  if (message->address == myAddress)
   {
     Serial.println ("Problems");
     //digitalWrite (ERROR_PIN, HIGH);
     //while (true)
     //  { }  // give up
   }
-  // make our LED match the switch of the previous device in sequence
 
-  Serial.println (int(message.switches [0]));
-  Serial.println (message.address);
-  digitalWrite (LED_PIN, message.switches [0]);
+  Serial.write("address");
+  Serial.println (message->address);
+  Serial.write("command");
+  Serial.println (int(message->command));
+    Serial.write("info");
+  Serial.println (int(message->info));
+
+
+  digitalWrite (LED_PIN, message->address);
 } // end of processMessage
 
 // Here to send our own message
-void sendRS485Message ()
+void sendRS485Message (Message message)
 {
-  memset (&message, 0, sizeof message);
-  message.address = myAddress;
-  int inChar = Serial.read();
-  if (isDigit(inChar)) {
-    // convert the incoming byte to a char and add it to the string:
-    inString += (char)inChar;
-  }
-  message.switches[0] = (char) inString.toInt();
-  Serial.write(inString.toInt());
-  inString = "";
 
   digitalWrite (XMIT_ENABLE_PIN, HIGH);  // enable sending
   rs485Channel.sendMsg ((byte *) &message, sizeof message);
@@ -131,26 +134,63 @@ void sendRS485Message ()
 
 }  // end of sendMessage
 
+void checkSerialData(Message *message) {
+   String serialResponse = Serial.readStringUntil(';');
+
+    // Convert from String Object to String.
+    char buf[20];
+    serialResponse.toCharArray(buf, sizeof(buf));
+    char *p = buf;
+    char *str;
+    
+    //there should be a cleaner way...
+    int i = 0;
+    while ((str = strtok_r(p, "_", &p)) != NULL){
+      switch (i)
+      {
+      case 0: message->address = *str; break;
+      case 1: message->command = *str; break;
+      case 2: message->info = *str; break;
+      }
+      i++;
+    }
+  
+  Serial.write("address ");
+  Serial.println (int(message->address));
+  Serial.write("command ");
+  Serial.println (message->command);
+  Serial.write("info ");
+  Serial.println (int(message->info));
+
+
+  inString = "";
+  //settign available to 1
+  message->available = 1;
+}
+
 // the loop function runs over and over again forever
 void loop() {
-  //Check Serial connection for data
-  while (Serial.available() > 0) {
-    sendRS485Message();
+  // Create message 
+  //Check Serial connection for data (send always)
+  message.address = 0 ;
+  message.available = 0;
+  // Serial.println(message.address);
+  if (Serial.available()) {
+    checkSerialData(&message);
   } //end serial.available
+  //myAddress == 1 && 
+  if(message.available) {
+    sendRS485Message(message);
+  }
   //Check RS connection for data
   if (rs485Channel.update ()) {
-    memset (&message, 0, sizeof message);
-    int len = rs485Channel.getLength ();
-    if (len > sizeof message)
-      len = sizeof message;
-    Serial.write("bla");
-    Serial.write(message.switches[0]);
-    memcpy (&message, rs485Channel.getData (), len);
+    //Serial.write(message.switches[0]);  
     lastMessageTime = micros ();
-    processSerialData ();
+    processRS48Message (&message);
     
   }  // end of message completely received
   //Check outputs from GPIOs
+
 
   //Apply commands
 
