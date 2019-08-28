@@ -33,6 +33,19 @@ byte inByte = 0; // incoming serial byte
 
 SoftwareSerial rs485(RO_PIN, DI_PIN); // receive pin, transmit pin
 
+//For Porto..
+const int sensorIn = A7;
+int mVperAmp = 100; // use 100 for 20A Module and 66 for 30A Module
+double Voltage = 0;
+double VRMS = 0;
+double AmpsRMS = 0;
+
+int BUTTON_IN = 3;
+int BUTTON_OUT = 2;
+
+int working = 1;
+int received ;
+
 // from EEPROM
 byte myAddress;       // who we are
 byte numberOfDevices; // maximum devices on the bus
@@ -71,71 +84,45 @@ void setup()
   // initialize serial communication at 9600 bits per second:
   Serial.begin(BAUD_RATE);
 
-  // debugging prints
-  //Serial.println();
-  //Serial.println(F("Commencing"));
   myAddress = EEPROM.read(0);
-  //Serial.print(F("My address is "));
-  //Serial.println(int(myAddress));
   numberOfDevices = EEPROM.read(1);
-  //Serial.print(F("Max address is "));
-  //Serial.println(int(numberOfDevices));
 
-  //if (myAddress >= numberOfDevices)
-  //  Serial.print(F("** WARNING ** - device number is out of range, will not be detected."));
-
-  // software serial for talking to other devices
   rs485.begin(RS485_BAUD_RATE);
   // initialize the RS485 library
   rs485Channel.begin();
 
   // set up various pins
-  pinMode(XMIT_ENABLE_PIN, OUTPUT);
+  //pinMode(XMIT_ENABLE_PIN, OUTPUT);
 
   // demo action pins
-  pinMode(ENABLE_PIN, OUTPUT);
+  //pinMode(ENABLE_PIN, OUTPUT);
   // Since the other end of the reed switch is connected to ground, we need
   // to pull-up the reed switch pin internally.
-  pinMode(REED_PIN, INPUT_PULLUP);
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, HIGH);
+
+  //pinMode(LED_PIN, OUTPUT);
+  //digitalWrite(LED_PIN, HIGH);
+
+    pinMode (ENABLE_PIN, OUTPUT);  // driver output enable
+    pinMode(BUTTON_IN, INPUT);
+    pinMode(BUTTON_OUT, OUTPUT);
+    pinMode(LED_BUILTIN, OUTPUT);
+
+    digitalWrite(ENABLE_PIN, LOW);
+    digitalWrite(BUTTON_OUT, LOW);
+
 }
+
+
+//
+// RS485
+//
 
 // Here to process an incoming message
 void processRS48Message(Message *message)
 {
-
-  // make our LED match the switch of the previous device in sequence
   memcpy(message, rs485Channel.getData(), rs485Channel.getLength());
-  // handle the incoming message, depending on who it is from and the data in it
-  // we cannot receive a message from ourself
-  // someone must have given two devices the same address
-  //if (message->address == myAddress)
-  //{
-    //Serial.println("Problems");
-    //digitalWrite (ERROR_PIN, HIGH);
-    //while (true)
-    //  { }  // give up
-  //}
-
-  //Serial.write("address");
-  //Serial.println(message->address);
-  //Serial.write("command");
-  //Serial.println(int(message->command));
-  //Serial.write("info");
-  //Serial.println(int(message->info));
-
   digitalWrite(LED_PIN, message->address);
 } // end of processMessage
-
-void sendSerialData(Message message)
-{
-  Serial.print(message.address);
-  Serial.print("_");
-  Serial.print(message.command);
-  Serial.print("_");
-  Serial.println(message.info);
-}
 
 // Here to send our own message
 void sendRS485Message(Message message)
@@ -146,6 +133,22 @@ void sendRS485Message(Message message)
   digitalWrite(XMIT_ENABLE_PIN, LOW); // disable sending
 
 } // end of sendMessage
+
+
+//
+// Serial
+//
+
+
+void sendSerialData(Message message)
+{
+  Serial.print(message.address);
+  Serial.print("_");
+  Serial.print(message.command);
+  Serial.print("_");
+  Serial.println(message.info);
+}
+
 
 void checkSerialData(Message *message)
 {
@@ -176,17 +179,67 @@ void checkSerialData(Message *message)
     i++;
   }
 
-  //Serial.write("address ");
-  //Serial.println(int(message->address));
-  //Serial.write("command ");
-  //Serial.println(message->command);
-  //Serial.write("info ");
-  //Serial.println(int(message->info));
 
   inString = "";
   //settign available to 1
   message->available = 1;
 }
+
+//
+// GPIO
+//
+
+
+float getVPP()
+{
+  float result;
+  
+  int readValue;             //value read from the sensor
+  int maxValue = 0;          // store max value here
+  int minValue = 1024;          // store min value here
+  
+   uint32_t start_time = millis();
+   while((millis()-start_time) < 100) //sample for 1 Sec
+   {
+       readValue = analogRead(sensorIn);
+       // see if you have a new maxValue
+       if (readValue > maxValue) 
+           maxValue = readValue;
+       if (readValue < minValue) 
+           minValue = readValue;
+   }
+   
+   // Subtract min from max
+   result = ((maxValue - minValue) * 5.0)/1024.0;
+      
+   return result;
+ }
+
+void portoHelper()
+{
+  working = digitalRead ( BUTTON_IN );
+    //For Manual Work
+ if (working) {
+  digitalWrite(LED_BUILTIN, HIGH); 
+  
+  Voltage = getVPP();
+  VRMS = (Voltage/2.0) *0.707; 
+  AmpsRMS = (VRMS * 1000)/mVperAmp;
+
+  
+  if( AmpsRMS < 1 ) {
+    Serial.write("1_portohelper_opening");
+    delay(2000);
+    digitalWrite(BUTTON_OUT, HIGH);
+    delay(5000);
+  } 
+  digitalWrite(BUTTON_OUT, LOW);
+ } else {
+  digitalWrite(LED_BUILTIN, LOW);
+ }
+ 
+}
+
 
 void checkGPIOutput(Message *message)
 {
