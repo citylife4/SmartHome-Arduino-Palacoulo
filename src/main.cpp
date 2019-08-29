@@ -3,17 +3,16 @@
 #include <EEPROM.h>
 
 //RS485 Defines
+#define INPUT_SIZE 50
 
 // the data we broadcast to each other device changes
-class Message
+struct Message
 {
-
-public:
   int address;
-  byte command;
-  byte info;
-  byte available;
-};
+  char command[20];
+  char info[20];
+  char  available;
+} ;
 
 Message message;
 
@@ -53,7 +52,7 @@ byte numberOfDevices; // maximum devices on the bus
 // callbacks for the non-blocking RS485 library
 size_t fWrite(const byte what)
 {
-  rs485.write(what);
+  return rs485.write(what);
 }
 
 int fAvailable()
@@ -67,7 +66,7 @@ int fRead()
 }
 
 // RS485 library instance
-RS485 rs485Channel(fRead, fAvailable, fWrite, 20);
+RS485 rs485Channel(fRead, fAvailable, fWrite, 50);
 
 // action pins (demo)
 const int REED_PIN = 2; // Pin connected to reed switch
@@ -112,7 +111,6 @@ void setup()
 
 }
 
-
 //
 // RS485
 //
@@ -120,8 +118,11 @@ void setup()
 // Here to process an incoming message
 void processRS48Message(Message *message)
 {
-  memcpy(message, rs485Channel.getData(), rs485Channel.getLength());
-  digitalWrite(LED_PIN, message->address);
+    memset (message, 0, sizeof (*message) );
+    uint32_t len = rs485Channel.getLength ();
+    if (len > sizeof (*message) )
+      len = sizeof (*message) ;
+    memcpy(message, rs485Channel.getData(), len);
 } // end of processMessage
 
 // Here to send our own message
@@ -152,36 +153,33 @@ void sendSerialData(Message message)
 
 void checkSerialData(Message *message)
 {
-  String serialResponse = Serial.readStringUntil(';');
-
-  // Convert from String Object to String.
-  char buf[20];
-  serialResponse.toCharArray(buf, sizeof(buf));
-  char *p = buf;
-  char *str;
-
-  //there should be a cleaner way...
-  int i = 0;
-  while ((str = strtok_r(p, "_", &p)) != NULL)
-  {
-    switch (i)
+   message->address = EEPROM.read(0);
+    // Get next command from Serial (add 1 for final 0)
+    char input[INPUT_SIZE + 1];
+    byte size = Serial.readBytes(input, INPUT_SIZE);
+    // Add the final 0 to end the C string
+    input[size] = 0;
+    
+    // Read each command pair 
+    char* command = strtok(input, "&");
+    while (command != 0)
     {
-    case 0:
-      message->address = *str;
-      break;
-    case 1:
-      message->command = *str;
-      break;
-    case 2:
-      message->info = *str;
-      break;
+        // Split the command in two values
+        char* separator = strchr(command, ':');
+        if (separator != 0)
+        {
+            // Actually split the string in 2: replace ':' with 0
+            *separator = 0;
+            strcpy(message->command,command);
+            ++separator;
+            strcpy(message->info, separator);
+    
+            // Do something with servoId and position
+        }
+        // Find the next command in input string
+        command = strtok(0, "&");
+        //TODO: should set more than 1 message
     }
-    i++;
-  }
-
-
-  inString = "";
-  //settign available to 1
   message->available = 1;
 }
 
