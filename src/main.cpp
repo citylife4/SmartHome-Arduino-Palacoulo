@@ -11,10 +11,11 @@
 // the data we broadcast to each other device changes
 struct Message
 {
-  int address;
   char command[20];
   char info[20];
   char available;
+  int my_address;
+  int to_address;
 } message;
 
 //Port value and mode
@@ -156,7 +157,7 @@ void sendRS485Message(Message message)
 
 void sendSerialData(Message message)
 {
-  Serial.print(message.address);
+  Serial.print(message.my_address);
   Serial.print("_");
   Serial.print(message.command);
   Serial.print("_");
@@ -167,34 +168,16 @@ void sendSerialData(Message message)
 //comand:info (missing reading address)
 void checkSerialData(Message *message)
 {
-  message->address = EEPROM.read(0);
   // Get next command from Serial (add 1 for final 0)
   char input[INPUT_SIZE + 1];
+  char delim[] = ":";
   byte size = Serial.readBytes(input, INPUT_SIZE);
-  // Add the final 0 to end the C string
-  input[size] = 0;
 
-  // Read each command pair
-  char *command = strtok(input, "&");
-  while (command != 0)
-  {
-    // Split the command in two values
-    char *separator = strchr(command, ':');
-    if (separator != 0)
-    {
-      // Actually split the string in 2: replace ':' with 0
-      *separator = 0;
-      strcpy(message->command, command);
-      ++separator;
-      strcpy(message->info, separator);
-
-      // Do something with servoId and position
-    }
-    // Find the next command in input string
-    command = strtok(0, "&");
-    //TODO: should set more than 1 message
-  }
   message->available = 1;
+  // Add the final 0 to end the C string
+  message->to_address=atoi(strtok(input , delim));
+  strcpy(message->command,strtok(NULL , delim));
+  strcpy(message->info,strtok(NULL , delim));
 }
 
 //
@@ -213,11 +196,8 @@ float getVPP()
   while ((millis() - start_time) < 100) //sample for 1 Sec
   {
     readValue = analogRead(sensorIn);
-    // see if you have a new maxValue
-    if (readValue > maxValue)
-      maxValue = readValue;
-    if (readValue < minValue)
-      minValue = readValue;
+    if (readValue > maxValue) maxValue = readValue;
+    if (readValue < minValue) minValue = readValue;
   }
 
   // Subtract min from max
@@ -279,7 +259,7 @@ void loop()
 {
   // Create message
   //Check Serial connection for data (send always)
-  message.address = 0;
+  message.my_address = myAddress;
   message.available = 0;
   // Serial.println(message.address);
 
@@ -288,18 +268,15 @@ void loop()
   //////
 
   //Data can comme from two places..
-  if (Serial.available())
-  {
+  if (Serial.available()) {
     checkSerialData(&message);
   } //end serial.available
-
   //
   checkGPIOutput(&message);
 
   if (rs485Channel.update())
-  {
     processRS48Message(&message);
-  } // end of message completely received
+  // end of message completely received
 
   //TODO add: myAddress == 1 &&
   //Check RS connection for data
