@@ -9,14 +9,17 @@
 
 //Structs
 // the data we broadcast to each other device changes
+// from_to_command_GPIOaddr_value
 struct Message
-{
-  char command[20];
-  char info[20];
+{ 
+  uint8_t from;
+  uint8_t to;
+  uint8_t command;
+  uint8_t GPIOaddr;
+  uint8_t value;
   char available;
-  int my_address;
-  int to_address;
-} message;
+
+} ;
 
 //Port value and mode
 struct GpioStatus
@@ -84,6 +87,10 @@ String inString = "";
 //Serial Connection Defines
 const unsigned long BAUD_RATE = 9600;
 
+//State machine
+enum State_enum {SET, CONFIG, READ};
+//enum Sensors_enum {NONE, SENSOR_RIGHT, SENSOR_LEFT, BOTH};
+
 // the setup function runs once when you press reset or power the board
 void setup()
 {
@@ -134,13 +141,15 @@ void setup()
 //
 
 // Here to process an incoming message
-void processRS48Message(Message *message)
+uint8_t processRS48Message(Message *message)
 {
   memset(message, 0, sizeof(*message));
   uint32_t len = rs485Channel.getLength();
   if (len > sizeof(*message))
     len = sizeof(*message);
   memcpy(message, rs485Channel.getData(), len);
+  message->available = 1;
+  return 1;
 } // end of processMessage
 
 // Here to send our own message
@@ -157,27 +166,33 @@ void sendRS485Message(Message message)
 
 void sendSerialData(Message message)
 {
-  Serial.print(message.my_address);
+  Serial.print(message.from);
+  Serial.print("_");
+  Serial.print(message.to);
   Serial.print("_");
   Serial.print(message.command);
   Serial.print("_");
-  Serial.println(message.info);
+  Serial.print(message.GPIOaddr);
+  Serial.print("_");
+  Serial.println(message.value);
 }
 
 //For now it will only accept one communication at a time
 //comand:info (missing reading address)
-void checkSerialData(Message *message)
+uint8_t checkSerialData(Message *message)
 {
   // Get next command from Serial (add 1 for final 0)
   char input[INPUT_SIZE + 1];
   char delim[] = ":";
-  byte size = Serial.readBytes(input, INPUT_SIZE);
+  Serial.readBytes(input, INPUT_SIZE);
 
   message->available = 1;
   // Add the final 0 to end the C string
-  message->to_address=atoi(strtok(input , delim));
-  strcpy(message->command,strtok(NULL , delim));
-  strcpy(message->info,strtok(NULL , delim));
+  message->to=atoi(strtok(input , delim));
+  message->command=atoi(strtok(NULL , delim));
+  message->GPIOaddr=atoi(strtok(input , delim));
+  message->value=atoi(strtok(input , delim));
+  return 1;
 }
 
 //
@@ -233,11 +248,12 @@ void portoHelper()
   }
 }
 
-void checkGPIOutput(Message *message)
+void applyGPIO(Message message)
 {
+
 }
 
-void prossesGPIOInput(Message message)
+uint8_t prossesGPIOInput(Message * message)
 {
   for (uint8_t i = 0; i < NUMBEROFGPIOS; i++)
   {
@@ -249,49 +265,59 @@ void prossesGPIOInput(Message message)
         gpioports[i].value = value;
         gpioports[i].changed = 1;
         gpioChanged = 1;
+
+        message->to = 0;
+        message->command=READ;
+        message->value = value;
+        message->available=1;
+
+        return 1;
       }
     }
   }
+  return 0;
 }
+
+uint8_t checkInputs(Message * message) {
+
+  if (Serial.available())
+    return checkSerialData(message);
+
+  if (rs485Channel.update())
+    return processRS48Message(message);
+
+  return prossesGPIOInput(message);
+
+}
+
+uint8_t setOutputs(Message message) {
+
+  if (message.available )
+  {
+    if (message.to == myAddress)
+    {
+      applyGPIO(message);
+    } 
+    sendSerialData(message);
+    sendRS485Message(message);
+    gpioChanged = 0;
+  }
+  return 1;
+}
+
 
 // the loop function runs over and over again forever
 void loop()
 {
   // Create message
+  Message message;
   //Check Serial connection for data (send always)
-  message.my_address = myAddress;
   message.available = 0;
   // Serial.println(message.address);
 
-  //////
-  // Create Message
-  //////
+  //Check input data
+  checkInputs(&message);
 
-  //Data can comme from two places..
-  if (Serial.available()) {
-    checkSerialData(&message);
-  } //end serial.available
-  //
-  checkGPIOutput(&message);
-
-  if (rs485Channel.update())
-    processRS48Message(&message);
-  // end of message completely received
-
-  //TODO add: myAddress == 1 &&
-  //Check RS connection for data
-  if (message.available)
-  {
-  }
-
-  //Send Message to serial and RS485
-  //TODO serial only on device 1?
-  if (message.available || gpioChanged )
-  {
-    sendSerialData(message);
-    sendRS485Message(message);
-    gpioChanged = 0;
-  }
-
-
+  //Output created data
+  setOutputs(message);
 } //end loop
