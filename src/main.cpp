@@ -6,6 +6,8 @@
 #define INPUT_SIZE 50
 #define NUMBEROFGPIOS 20
 #define INVALID_PORT 0x04
+#define PCADDR 0
+#define MASTERADDR 1
 
 //Structs
 // the data we broadcast to each other device changes
@@ -18,7 +20,6 @@ struct Message
   uint8_t GPIOaddr;
   uint8_t value;
   char available;
-
 } ;
 
 //Port value and mode
@@ -32,16 +33,11 @@ struct GpioStatus
   uint8_t changed;
 } gpioports[NUMBEROFGPIOS];
 
-//For Porto..
-const int sensorIn = A7;
-const int mVperAmp = 100; // use 100 for 20A Module and 66 for 30A Module
-double Voltage = 0;
-double VRMS = 0;
-double AmpsRMS = 0;
 
 // from EEPROM
 byte myAddress;       // who we are
 byte numberOfDevices; // maximum devices on the bus
+byte inPorto; // maximum devices on the bus
 
 //RS485
 const unsigned long RS485_BAUD_RATE = 9600;
@@ -73,22 +69,25 @@ int fRead()
 // RS485 library instance
 RS485 rs485Channel(fRead, fAvailable, fWrite, 50);
 
-//Misc
-const int BUTTON_IN = 3;
-const int BUTTON_OUT = 2;
-const float TIME_PER_BYTE = 1.0 / (RS485_BAUD_RATE / 10.0); // seconds per sending one byt
+//For Porto..
+const int DOOR_BELTSENSOR = A7;
+const int mVperAmp = 100; // use 100 for 20A Module and 66 for 30A Module
+double Voltage = 0;
+double VRMS = 0;
+double AmpsRMS = 0;
+const int DOOR_BUTTOM = 3;
+const int DOOR_RELAY = 2;
 
 // action pins (demo)
 const int REED_PIN = 2; // Pin connected to reed switch
 const int LED_PIN = 13; // LED pin - active-high
 const byte ENABLE_PIN = 4;
-String inString = "";
 
 //Serial Connection Defines
-const unsigned long BAUD_RATE = 9600;
+const unsigned long SERIAL_BAUD_RATE = 9600;
 
 //State machine
-enum State_enum {SET, CONFIG, READ};
+enum State_enum {SET, GET, CONFIG};
 //enum Sensors_enum {NONE, SENSOR_RIGHT, SENSOR_LEFT, BOTH};
 
 // the setup function runs once when you press reset or power the board
@@ -102,38 +101,39 @@ void setup()
   }
 
   // initialize serial communication at 9600 bits per second:
-  Serial.begin(BAUD_RATE);
+  Serial.begin(SERIAL_BAUD_RATE);
   gpioports[0].Mode = INVALID_PORT;
   gpioports[1].Mode = INVALID_PORT;
 
   //Read From EEPROM
-  myAddress = EEPROM.read(0);
+  myAddress       = EEPROM.read(0);
   numberOfDevices = EEPROM.read(1);
+  inPorto         = EEPROM.read(2);
 
   //RS485 Configuration
   rs485.begin(RS485_BAUD_RATE);
   rs485Channel.begin();
   //Pin Mode
   pinMode(RS485_ENABLE, OUTPUT);
-  gpioports[RO_PIN].Mode = INVALID_PORT;
-  gpioports[DI_PIN].Mode = INVALID_PORT;
-  gpioports[RS485_ENABLE].Mode = INVALID_PORT;
+  gpioports[RO_PIN].Mode        = INVALID_PORT;
+  gpioports[DI_PIN].Mode        = INVALID_PORT;
+  gpioports[RS485_ENABLE].Mode  = INVALID_PORT;
 
-  // demo action pins
-  //pinMode(ENABLE_PIN, OUTPUT);
-  // Since the other end of the reed switch is connected to ground, we need
-  // to pull-up the reed switch pin internally.
+  if(inPorto) {
+    pinMode(ENABLE_PIN, OUTPUT); // driver output enable
+    pinMode(DOOR_BUTTOM, INPUT);
+    pinMode(DOOR_RELAY, OUTPUT);
+    pinMode(LED_BUILTIN, OUTPUT);
 
-  //pinMode(LED_PIN, OUTPUT);
-  //digitalWrite(LED_PIN, HIGH);
+    gpioports[ENABLE_PIN].Mode      = INVALID_PORT;
+    gpioports[DOOR_BUTTOM].Mode     = INVALID_PORT;
+    gpioports[DOOR_RELAY].Mode      = INVALID_PORT;
+    gpioports[DOOR_BELTSENSOR].Mode = INVALID_PORT;
+    gpioports[LED_BUILTIN].Mode     = INVALID_PORT;
 
-  pinMode(ENABLE_PIN, OUTPUT); // driver output enable
-  pinMode(BUTTON_IN, INPUT);
-  pinMode(BUTTON_OUT, OUTPUT);
-  pinMode(LED_BUILTIN, OUTPUT);
+    digitalWrite(DOOR_RELAY, LOW);
+  }
 
-  digitalWrite(ENABLE_PIN, LOW);
-  digitalWrite(BUTTON_OUT, LOW);
 }
 
 //
@@ -188,10 +188,10 @@ uint8_t checkSerialData(Message *message)
 
   message->available = 1;
   // Add the final 0 to end the C string
-  message->to=atoi(strtok(input , delim));
-  message->command=atoi(strtok(NULL , delim));
-  message->GPIOaddr=atoi(strtok(input , delim));
-  message->value=atoi(strtok(input , delim));
+  message->to       =atoi(strtok(input , delim));
+  message->command  =atoi(strtok(input , delim));
+  message->GPIOaddr =atoi(strtok(input , delim));
+  message->value    =atoi(strtok(input , delim));
   return 1;
 }
 
@@ -210,7 +210,7 @@ float getVPP()
   uint32_t start_time = millis();
   while ((millis() - start_time) < 100) //sample for 1 Sec
   {
-    readValue = analogRead(sensorIn);
+    readValue = analogRead(DOOR_BELTSENSOR);
     if (readValue > maxValue) maxValue = readValue;
     if (readValue < minValue) minValue = readValue;
   }
@@ -221,9 +221,9 @@ float getVPP()
   return result;
 }
 
-void portoHelper()
+uint8_t portoHelper(Message * message)
 {
-  int working = digitalRead(BUTTON_IN);
+  int working = digitalRead(DOOR_BUTTOM);
   //For Manual Work
   if (working)
   {
@@ -235,22 +235,30 @@ void portoHelper()
 
     if (AmpsRMS < 1)
     {
+      message->from=myAddress;
+      message->to=PCADDR;
+      message->command=GET;
+      message->GPIOaddr=DOOR_BELTSENSOR;
+      message->value = 1;
+
+
       Serial.write("1_portohelper_opening");
       delay(2000);
-      digitalWrite(BUTTON_OUT, HIGH);
+      digitalWrite(DOOR_RELAY, HIGH);
       delay(5000);
     }
-    digitalWrite(BUTTON_OUT, LOW);
+    digitalWrite(DOOR_RELAY, LOW);
   }
   else
   {
     digitalWrite(LED_BUILTIN, LOW);
   }
+  return 1;
 }
 
-void applyGPIO(Message message)
+uint8_t applyGPIO(Message message)
 {
-
+  if (gpioports[message.GPIOaddr].Mode == INVALID_PORT) return 0;
 }
 
 uint8_t prossesGPIOInput(Message * message)
@@ -266,8 +274,8 @@ uint8_t prossesGPIOInput(Message * message)
         gpioports[i].changed = 1;
         gpioChanged = 1;
 
-        message->to = 0;
-        message->command=READ;
+        message->to = PCADDR;
+        message->command=GET;
         message->value = value;
         message->available=1;
 
@@ -277,6 +285,8 @@ uint8_t prossesGPIOInput(Message * message)
   }
   return 0;
 }
+
+//LOOP
 
 uint8_t checkInputs(Message * message) {
 
@@ -290,16 +300,21 @@ uint8_t checkInputs(Message * message) {
 
 }
 
+//message
+// to me - gpio
+// to  
 uint8_t setOutputs(Message message) {
 
   if (message.available )
   {
     if (message.to == myAddress)
-    {
-      applyGPIO(message);
-    } 
-    sendSerialData(message);
-    sendRS485Message(message);
+      applyGPIO(message); 
+    else if (message.to == PCADDR && myAddress == MASTERADDR)
+      sendSerialData(message);
+    else if ( (message.to   == PCADDR && myAddress != MASTERADDR) ||
+              (message.from == PCADDR && myAddress == MASTERADDR) ) 
+      sendRS485Message(message);
+    
     gpioChanged = 0;
   }
   return 1;
@@ -307,6 +322,7 @@ uint8_t setOutputs(Message message) {
 
 
 // the loop function runs over and over again forever
+
 void loop()
 {
   // Create message
