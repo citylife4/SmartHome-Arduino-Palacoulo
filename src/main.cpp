@@ -22,6 +22,8 @@ struct Message
   char available;
 } ;
 
+//
+
 //Port value and mode
 struct GpioStatus
 {
@@ -240,9 +242,8 @@ uint8_t portoHelper(Message * message)
       message->command=GET;
       message->GPIOaddr=DOOR_BELTSENSOR;
       message->value = 1;
+      message->available = 1;
 
-
-      Serial.write("1_portohelper_opening");
       delay(2000);
       digitalWrite(DOOR_RELAY, HIGH);
       delay(5000);
@@ -256,9 +257,30 @@ uint8_t portoHelper(Message * message)
   return 1;
 }
 
-uint8_t applyGPIO(Message message)
+uint8_t applyGPIO(Message * message)
 {
-  if (gpioports[message.GPIOaddr].Mode == INVALID_PORT) return 0;
+  if (gpioports[message->GPIOaddr].Mode == INVALID_PORT) return 0;
+
+  switch (message->command)
+  {
+  case SET:
+    digitalWrite(message->GPIOaddr,message->value);
+    break;
+  
+  case GET:
+    message->to=PCADDR;
+    message->from=myAddress;
+    message->value=digitalRead(message->GPIOaddr);
+    break;
+  
+  case CONFIG:
+    pinMode(message->GPIOaddr,message->value);
+    break;
+  
+  default:
+    break;
+  }
+  return 1;
 }
 
 uint8_t prossesGPIOInput(Message * message)
@@ -296,7 +318,11 @@ uint8_t checkInputs(Message * message) {
   if (rs485Channel.update())
     return processRS48Message(message);
 
-  return prossesGPIOInput(message);
+  if( prossesGPIOInput(message) )
+    return 1;
+  
+  //Looping indefinitly
+  return portoHelper(message);
 
 }
 
@@ -305,11 +331,12 @@ uint8_t checkInputs(Message * message) {
 // to  
 uint8_t setOutputs(Message message) {
 
-  if (message.available )
+  //Set by message
+  if (message.available)
   {
     if (message.to == myAddress)
-      applyGPIO(message); 
-    else if (message.to == PCADDR && myAddress == MASTERADDR)
+      applyGPIO(&message); 
+    if (message.to == PCADDR && myAddress == MASTERADDR)
       sendSerialData(message);
     else if ( (message.to   == PCADDR && myAddress != MASTERADDR) ||
               (message.from == PCADDR && myAddress == MASTERADDR) ) 
