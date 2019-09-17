@@ -132,10 +132,10 @@ void setup()
     pinMode(DOOR_RELAY, OUTPUT);
     pinMode(LED_BUILTIN, OUTPUT);
 
-    gpioports[ENABLE_PIN].Mode = INVALID_PORT;
-    gpioports[DOOR_BUTTOM].Mode = INVALID_PORT;
-    gpioports[DOOR_RELAY].Mode = INVALID_PORT;
-    gpioports[DOOR_BELTSENSOR].Mode = INVALID_PORT;
+    //gpioports[ENABLE_PIN].Mode = INVALID_PORT;
+    //gpioports[DOOR_BUTTOM].Mode = INVALID_PORT;
+    //gpioports[DOOR_RELAY].Mode = INVALID_PORT;
+    //gpioports[DOOR_BELTSENSOR].Mode = INVALID_PORT;
     //gpioports[LED_BUILTIN].Mode     = INVALID_PORT;
 
     digitalWrite(DOOR_RELAY, LOW);
@@ -181,6 +181,15 @@ void sendSerialData(Message message)
   Serial.print(message.GPIOaddr);
   Serial.print("_");
   Serial.println(message.value);
+}
+
+void cleanMessage(Message *message)
+{
+  message->from = 0;
+  message->to = 0;
+  message->command = 0;
+  message->GPIOaddr = 0;
+  message->value = 0;
 }
 
 //For now it will only accept one communication at a time
@@ -318,6 +327,9 @@ uint8_t applyGPIO(Message *message)
   case SET:
     digitalWrite(message->GPIOaddr, message->value);
     gpioports[message->GPIOaddr].value = message->value;
+    message->to = PCADDR;
+    message->from = myAddress;
+    message->value = digitalRead(message->GPIOaddr);
     break;
 
   case GET:
@@ -328,6 +340,8 @@ uint8_t applyGPIO(Message *message)
 
   case CONFIG:
     pinMode(message->GPIOaddr, message->value);
+    message->to = PCADDR;
+    message->from = myAddress;
     break;
 
   default:
@@ -417,9 +431,9 @@ void loop()
   message.available = 0;
   // Serial.println(message.address);
 
+  cleanMessage(&message);
   //Check input data
   checkInputs(&message);
-
   //Output created data
   setOutputs(message);
 } //end loop
