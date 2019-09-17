@@ -100,10 +100,10 @@ enum State_enum
 void setup()
 {
   //Initialize GpioStatus Array
-  for (int i; i < NUMBEROFGPIOS; i++)
+  for (int i = 0; i < NUMBEROFGPIOS; i++)
   {
     gpioports[i].Mode = INPUT;
-    gpioports[i].value = 0;
+    gpioports[i].value = digitalRead(i);
   }
 
   // initialize serial communication at 9600 bits per second:
@@ -224,7 +224,6 @@ uint8_t checkSerialData(Message *message)
       recvInProgress = true;
     }
   }
-  Serial.println(receivedChars);
   strcpy(tempChars, receivedChars);
   char *strtokIndx; // this is used by strtok() as an index
                     // this temporary copy is necessary to protect the original data
@@ -243,6 +242,7 @@ uint8_t checkSerialData(Message *message)
   message->GPIOaddr = atoi(strtokIndx);
   strtokIndx = strtok(NULL, "_"); // get the first part - the string
   message->value = atoi(strtokIndx);
+
   return 1;
 }
 
@@ -343,6 +343,10 @@ uint8_t prossesGPIOInput(Message *message)
     if (gpioports[i].Mode == INPUT)
     {
       int value = digitalRead(i);
+      delay(3);
+      int valuea = digitalRead(i);
+      if (value != valuea)
+        continue;
       if (value != gpioports[i].value)
       {
         gpioports[i].value = value;
@@ -352,6 +356,7 @@ uint8_t prossesGPIOInput(Message *message)
         message->from = myAddress;
         message->to = PCADDR;
         message->command = GET;
+        message->GPIOaddr = i;
         message->value = value;
         message->available = 1;
 
@@ -391,7 +396,6 @@ uint8_t setOutputs(Message message)
   {
     if (message.to == myAddress)
       applyGPIO(&message);
-
     if (message.to == PCADDR && myAddress == MASTERADDR)
       sendSerialData(message);
     else if ((message.to == PCADDR && myAddress != MASTERADDR) ||
