@@ -285,10 +285,9 @@ float getVPP()
 
 uint8_t portoHelper(Message *message)
 {
-  int working = digitalRead(DOOR_BUTTOM);
-  //For Manual Work
-  if (working)
-  {
+    int working = digitalRead(DOOR_BUTTOM);
+    //For Manual Work
+
     //digitalWrite(LED_BUILTIN, HIGH);
 
     Voltage = getVPP();
@@ -297,24 +296,23 @@ uint8_t portoHelper(Message *message)
 
     if (AmpsRMS < 1)
     {
-      message->from = myAddress;
-      message->to = PCADDR;
-      message->command = GET;
-      message->GPIOaddr = DOOR_BELTSENSOR;
-      message->value = 1;
-      message->available = 1;
+        message->from = myAddress;
+        message->to = PCADDR;
+        message->command = GET;
+        message->GPIOaddr = DOOR_BELTSENSOR;
+        message->available = 1;
+        message->value = 0;
 
-      delay(2000);
-      digitalWrite(DOOR_RELAY, HIGH);
-      delay(5000);
+        if (working)
+        {
+            message->value = 1;
+            delay(2000);
+            digitalWrite(DOOR_RELAY, HIGH);
+            delay(5000);
+            digitalWrite(DOOR_RELAY, LOW);
+        }
     }
-    digitalWrite(DOOR_RELAY, LOW);
-  }
-  else
-  {
-    //digitalWrite(LED_BUILTIN, LOW);
-  }
-  return 1;
+    return 1;
 }
 
 uint8_t applyGPIO(Message *message)
@@ -322,26 +320,22 @@ uint8_t applyGPIO(Message *message)
   if (gpioports[message->GPIOaddr].Mode == INVALID_PORT)
     return 0;
 
+  message->to = PCADDR;
+  message->from = myAddress;
   switch (message->command)
   {
   case SET:
     digitalWrite(message->GPIOaddr, message->value);
     gpioports[message->GPIOaddr].value = message->value;
-    message->to = PCADDR;
-    message->from = myAddress;
     message->value = digitalRead(message->GPIOaddr);
     break;
 
   case GET:
-    message->to = PCADDR;
-    message->from = myAddress;
     message->value = digitalRead(message->GPIOaddr);
     break;
 
   case CONFIG:
     pinMode(message->GPIOaddr, message->value);
-    message->to = PCADDR;
-    message->from = myAddress;
     break;
 
   default:
@@ -396,7 +390,10 @@ uint8_t checkInputs(Message *message)
     return 1;
 
   //Looping indefinitly
-  return portoHelper(message);
+  if (inPorto)
+    return portoHelper(message);
+
+  return 1;
 }
 
 //message
@@ -431,9 +428,16 @@ void loop()
   message.available = 0;
   // Serial.println(message.address);
 
+  //uint32_t start_time = millis();
   cleanMessage(&message);
   //Check input data
   checkInputs(&message);
   //Output created data
   setOutputs(message);
+  //uint32_t end_time = millis();
+
+//Serial.println(end_time-start_time);
+
+  
+
 } //end loop
