@@ -99,12 +99,7 @@ enum State_enum
 // the setup function runs once when you press reset or power the board
 void setup()
 {
-  //Initialize GpioStatus Array
-  for (int i = 0; i < NUMBEROFGPIOS; i++)
-  {
-    gpioports[i].Mode = INPUT;
-    gpioports[i].value = digitalRead(i);
-  }
+ // int setup_time = millis(); 
 
   // initialize serial communication at 9600 bits per second:
   Serial.begin(SERIAL_BAUD_RATE);
@@ -125,21 +120,58 @@ void setup()
   gpioports[DI_PIN].Mode = INVALID_PORT;
   gpioports[RS485_ENABLE].Mode = INVALID_PORT;
 
+	//Initialize GpioStatus Array
+	for (int i = 0; i < NUMBEROFGPIOS; i++)
+	{
+		if (gpioports[i].Mode != INVALID_PORT) {
+			//set it to INPUT
+			pinMode(i,INPUT_PULLUP);
+			// wait a mil to check value again
+		  delay(1);
+		  gpioports[i].Mode = INPUT_PULLUP;
+		  gpioports[i].value = digitalRead(i);
+		}
+	}
+
   if (inPorto)
   {
     pinMode(ENABLE_PIN, OUTPUT); // driver output enable
-    pinMode(DOOR_BUTTOM, INPUT);
-    pinMode(DOOR_RELAY, OUTPUT);
+    pinMode(DOOR_BUTTOM, INPUT_PULLUP);
+    pinMode(DOOR_RELAY, INPUT_PULLUP);
     pinMode(LED_BUILTIN, OUTPUT);
 
-    //gpioports[ENABLE_PIN].Mode = INVALID_PORT;
-    //gpioports[DOOR_BUTTOM].Mode = INVALID_PORT;
-    //gpioports[DOOR_RELAY].Mode = INVALID_PORT;
-    //gpioports[DOOR_BELTSENSOR].Mode = INVALID_PORT;
-    //gpioports[LED_BUILTIN].Mode     = INVALID_PORT;
+    gpioports[ENABLE_PIN].Mode = OUTPUT;
+    gpioports[DOOR_BUTTOM].Mode = INPUT_PULLUP;
+    gpioports[DOOR_RELAY].Mode = INPUT_PULLUP;
+    gpioports[DOOR_BELTSENSOR].Mode = INPUT_PULLUP;
+    gpioports[LED_BUILTIN].Mode     = OUTPUT;
 
     digitalWrite(DOOR_RELAY, LOW);
   }
+
+
+
+	//Reset unused pins
+  //for (uint8_t times = 0; times < 3; times++) {
+  //  for (uint8_t i = 0; i < NUMBEROFGPIOS; i++)
+  //	{
+  //	  if (gpioports[i].Mode == INPUT)
+  //		{
+  //		  int value = digitalRead(i);
+  //			delay(3);
+  //			int valuea = digitalRead(i);
+  //			if (value != valuea) {
+  //		  		//Serial.println(i);
+  //			  	pinMode(i, INPUT);
+  //				  digitalWrite(i,LOW);
+  //				  pinMode(i, OUTPUT);
+  //			  }
+  //
+  //		}
+  //	}
+  //}
+  //
+  //	  Serial.print(millis() -setup_time);
 }
 
 //
@@ -325,8 +357,13 @@ uint8_t applyGPIO(Message *message)
   switch (message->command)
   {
   case SET:
+    //1st Set will set it to output, change again in Config
+    pinMode(message->GPIOaddr,OUTPUT);
     digitalWrite(message->GPIOaddr, message->value);
+
     gpioports[message->GPIOaddr].value = message->value;
+    gpioports[message->GPIOaddr].Mode = OUTPUT;
+    delay(5);
     message->to = PCADDR;
     message->from = myAddress;
     message->value = digitalRead(message->GPIOaddr);
@@ -410,11 +447,12 @@ uint8_t setOutputs(Message message)
   {
     if (message.to == myAddress)
       applyGPIO(&message);
-    if (message.to == PCADDR && myAddress == MASTERADDR)
+    if (message.to == PCADDR && myAddress == MASTERADDR) {
       sendSerialData(message);
-    else if ((message.to == PCADDR && myAddress != MASTERADDR) ||
-             (message.from == PCADDR && myAddress == MASTERADDR))
+    } else if ((message.to  == PCADDR && myAddress != MASTERADDR) ||
+              (message.from == PCADDR && myAddress == MASTERADDR)) {
       sendRS485Message(message);
+    }
 
     gpioChanged = 0;
   }
