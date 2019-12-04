@@ -92,7 +92,8 @@ enum State_enum
 {
   SET,
   GET,
-  CONFIG
+  CONFIG,
+  MDEBUG
 };
 //enum Sensors_enum {NONE, SENSOR_RIGHT, SENSOR_LEFT, BOTH};
 
@@ -133,21 +134,19 @@ void setup()
 		}
 	}
 
-  if (inPorto)
-  {
-    pinMode(ENABLE_PIN, OUTPUT); // driver output enable
-    pinMode(DOOR_BUTTOM, INPUT_PULLUP);
-    pinMode(DOOR_RELAY, INPUT_PULLUP);
-    pinMode(LED_BUILTIN, OUTPUT);
-
-    gpioports[ENABLE_PIN].Mode = OUTPUT;
-    gpioports[DOOR_BUTTOM].Mode = INPUT_PULLUP;
-    gpioports[DOOR_RELAY].Mode = INPUT_PULLUP;
-    gpioports[DOOR_BELTSENSOR].Mode = INPUT_PULLUP;
-    gpioports[LED_BUILTIN].Mode     = OUTPUT;
-
-    digitalWrite(DOOR_RELAY, LOW);
-  }
+  //if (inPorto)
+  //{
+  //  pinMode(DOOR_BUTTOM, INPUT_PULLUP);
+  //  pinMode(DOOR_RELAY, INPUT_PULLUP);
+  //  pinMode(LED_BUILTIN, OUTPUT);
+  //
+  //  gpioports[DOOR_BUTTOM].Mode = INPUT_PULLUP;
+  //  gpioports[DOOR_RELAY].Mode = INPUT_PULLUP;
+  //  gpioports[DOOR_BELTSENSOR].Mode = INPUT_PULLUP;
+  //  gpioports[LED_BUILTIN].Mode     = OUTPUT;
+  //
+  //  digitalWrite(DOOR_RELAY, LOW);
+  //}
 
 
 
@@ -349,7 +348,7 @@ uint8_t portoHelper(Message *message)
 
 uint8_t applyGPIO(Message *message)
 {
-  if (gpioports[message->GPIOaddr].Mode == INVALID_PORT)
+  if (gpioports[message->GPIOaddr].Mode == INVALID_PORT && message->command != MDEBUG)
     return 0;
 
   message->to = PCADDR;
@@ -377,6 +376,20 @@ uint8_t applyGPIO(Message *message)
     pinMode(message->GPIOaddr, message->value);
     break;
 
+  case MDEBUG:
+    for (uint8_t i = 0; i < NUMBEROFGPIOS; i++)
+    {
+        //Serial.print("GPIO: ");
+        Serial.print(i);
+        Serial.print("_");
+        //Serial.print("\tMode: ");
+        Serial.print(gpioports[i].Mode);
+        Serial.print("_");
+        //Serial.print("\tValue: ");
+        Serial.println(digitalRead(i));
+    }
+    break;
+
   default:
     break;
   }
@@ -387,7 +400,7 @@ uint8_t prossesGPIOInput(Message *message)
 {
   for (uint8_t i = 0; i < NUMBEROFGPIOS; i++)
   {
-    if (gpioports[i].Mode == INPUT)
+    if (gpioports[i].Mode == INPUT || gpioports[i].Mode == INPUT_PULLUP )
     {
       int value = digitalRead(i);
       delay(3);
@@ -424,10 +437,8 @@ uint8_t checkInputs(Message *message)
 
   if (rs485Channel.update())
     return processRS48Message(message);
-
   if (prossesGPIOInput(message))
     return 1;
-
   //Looping indefinitly
   if (inPorto)
     return portoHelper(message);
